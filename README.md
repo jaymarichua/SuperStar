@@ -1,5 +1,5 @@
-# Overview
-DI-star: A large-scale game AI distributed training platform specially developed for the StarCraft II. We've already trained grand-master AI！This project contains:
+# SuperStar: Superhuman Reinforcement Learning Agent for StarCraft II
+SuperStar adds configuration settings to modify the game AI affordances in StarCraft II matches against the human player; SuperStar is a fork of DI-star: A large-scale game AI distributed training platform specially developed for the StarCraft II. We've already trained grand-master AI！This project contains:
 
 - [x] Play demo and test code (try and play with our agent!)
 
@@ -187,7 +187,7 @@ Slack: [link](https://join.slack.com/t/opendilab/shared_invite/zt-v9tmv4fp-nUBAQ
 
 Discord server: [link](https://discord.gg/dkZS2JF56X)
 
-## Citation
+## Citation and Attribution
 ```latex
 @misc{distar,
     title={DI-star: An Open-sourse Reinforcement Learning Framework for StarCraftII},
@@ -196,7 +196,15 @@ Discord server: [link](https://discord.gg/dkZS2JF56X)
     howpublished = {\url{https://github.com/opendilab/DI-star}},
     year={2021},
 }
+
+@misc{superstar,
+    title={SuperStar: Superhuman Reinforcement Learning Agent for StarCraft II},
+    author={JaymariChua},
+    publisher = {GitHub},
+    howpublished = {\url{https://github.com/jaymarichua/SuperStar}},
+    year={2021},
+}
 ```
 
 ## License
-DI-star released under the Apache 2.0 license.
+SuperStar is a fork of DI-star released under the Apache 2.0 license.
