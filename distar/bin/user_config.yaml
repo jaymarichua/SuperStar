@@ -40,4 +40,4 @@ env:
   replay_dir: '.'  # where to save replay, '.' means saved at current working directory
   game_steps_per_episode: 100000  # maximum length in one game, the game will end when it reaches the game step
   update_both_obs: False  # request opponent's observation in own observation
-  version: '4.10.0'  # SC2 game version
+  version: '4.10.0'  # SC2 game version, changing to latest requires code modification to accomodate patch changes
