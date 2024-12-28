@@ -1,19 +1,16 @@
 # SuperStar: Superhuman Reinforcement Learning Agent for StarCraft II
 SuperStar adds configuration settings to modify the game AI affordances in StarCraft II matches against the human player; SuperStar is a fork of DI-star: A large-scale game AI distributed training platform specially developed for the StarCraft II. We've already trained grand-master AI！This project contains:
 
+SuperStar Changelog
+- [ ] Configure Actions Per Minute (APM) setting *(updated by 2024-12-29)*
+
+DI-Star Changelog
 - [x] Play demo and test code (try and play with our agent!)
-
 - [x] First version of pre-trained SL and RL agent (only Zerg vs Zerg)
-
 - [x] Training code of Supervised Learning and Reinforcement Learning *(updated by 2022-01-31)*
-
 - [x] Training baseline with limited resource(one PC) and training guidance [here](docs/guidance_to_small_scale_training.md) *(New! updated 2022-04-24)*
-
 - [x] Agents fought with [Harstem (YouTube)](https://www.youtube.com/watch?v=fvQF-24IpXs&t=813s)  *(updated by 2022-04-01)*
-
 - [ ] More stronger pre-trained RL agents *(WIP)*
-
-
 
 ## Usage
 
