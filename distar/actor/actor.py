@@ -34,7 +34,7 @@ class Actor(object):
 
     def __init__(self, cfg):
         """
-        Initializes the Actor class.
+        Constructor for the Actor class.
 
         :param cfg: Dictionary containing configuration data, merged with default config.
         """
@@ -57,7 +57,7 @@ class Actor(object):
             name=self._actor_uid
         )
 
-        # Initialize communication module for receiving jobs if in training mode
+        # If training mode, initialize communication module for receiving jobs.
         if self._job_type == 'train':
             self._comm = ActorComm(self._whole_cfg, self._actor_uid, self._logger)
             self.max_job_duration = (
@@ -69,21 +69,21 @@ class Actor(object):
     def _setup_agents(self):
         """
         Sets up agent instances for training or other job types.
-        Requests job info from the communication module if in training mode.
+        If _job_type == 'train', requests job info from the communication module.
         Otherwise, loads relevant agent models if they exist.
         """
         self.agents = []
         if self._job_type == 'train':
-            # Ask for job details from the communication module.
+            # Ask for job details from the communication module (comm).
             self._comm.ask_for_job(self)
         else:
             self.models = {}
             map_names = []
             for idx, player_id in enumerate(self._cfg.player_ids):
-                if 'bot' in player_id:  # Skip bot players.
+                if 'bot' in player_id:  # Skips bot players that might be handled separately.
                     continue
 
-                # Import and instantiate the agent class dynamically
+                # Import the agent class dynamically, then instantiate it
                 Agent = import_module(self._cfg.agents.get(player_id, 'default'), 'Agent')
                 agent = Agent(self._whole_cfg)
                 agent.player_id = player_id
@@ -91,7 +91,7 @@ class Actor(object):
                 self.agents.append(agent)
 
                 if agent.HAS_MODEL:
-                    # Load the model if it is not yet cached
+                    # If the model is not yet cached, load it
                     if player_id not in self.models.keys():
                         if self._cfg.use_cuda:
                             assert 'test' in self._job_type, 'Only test mode supports GPU'
@@ -113,7 +113,7 @@ class Actor(object):
                             agent.model.load_state_dict(model_state_dict, strict=False)
                         self.models[player_id] = agent.model
                     else:
-                        # Share the loaded model among multiple agents
+                        # If model is already loaded, share it among multiple agents
                         agent.model = self.models[player_id]
 
             # Set environment map name if referencing it in loaded states
@@ -123,7 +123,7 @@ class Actor(object):
                 if not (map_names[0] == 'random' and map_names[1] == 'random'):
                     self._whole_cfg.env.map_name = 'NewRepugnancy'
 
-            # Set up teacher models for the agents if in train_test mode
+            # If train_test job, also set up teacher models for the agents
             if self._job_type == 'train_test':
                 teacher_models = {}
                 for idx, teacher_player_id in enumerate(self._cfg.teacher_player_ids):
@@ -157,11 +157,6 @@ class Actor(object):
         """
         Main inference loop. Initializes the environment, steps through episodes,
         and collects training data until completion or termination signal.
-
-        :param env_id: ID of the environment.
-        :param job: Job configuration.
-        :param result_queue: Queue for result communication.
-        :param pipe_c: Pipe for inter-process communication.
         """
         if job is None:
             job = {}
@@ -294,7 +289,7 @@ class Actor(object):
                                 else:
                                     self.agents[player_index].update_fake_reward(next_players_obs[player_index])
 
-                        # Logging and metrics update
+                        # Logging and metrics
                         iter_count += 1
                         game_iters += 1
                         if env_id == 0:
@@ -326,7 +321,7 @@ class Actor(object):
                         if not done:
                             observations = next_observations
                         else:
-                            # Optionally store stats in test mode
+                            # For test mode, optionally store stats
                             if 'test' in self._whole_cfg and self._whole_cfg.test.get('tb_stat', False):
                                 if not os.path.exists(self._env._result_dir):
                                     os.makedirs(self._env._result_dir)
@@ -336,7 +331,7 @@ class Actor(object):
                                 with open(path, 'w') as f:
                                     json.dump(data, f)
 
-                            # Report results back to the coordinator in training mode
+                            # If in training mode, report results back to the coordinator
                             if self._job_type == 'train':
                                 player_idx = random.sample(observations.keys(), 1)[0]
                                 game_steps = observations[player_idx]['raw_obs'].observation.game_loop
@@ -364,7 +359,7 @@ class Actor(object):
 
                     episode_count += 1
                 except Exception as e:
-                    # Handle exception, show stack trace, and proceed safely
+                    # On exception, show stack trace and move on safely.
                     print('[EPISODE LOOP ERROR]', e, flush=True)
                     print(''.join(traceback.format_tb(e.__traceback__)), flush=True)
                     episode_count += 1
@@ -457,9 +452,7 @@ class Actor(object):
         self.processes = processes
 
     def reset_env(self):
-        """
-        Sends 'reset' signal to all child processes to restart their environments.
-        """
+        """Sends 'reset' signal to all child processes to restart their environments."""
         for p in self.pipes:
             p.send('reset')
 
