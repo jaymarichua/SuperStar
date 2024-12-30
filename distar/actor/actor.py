@@ -187,7 +187,7 @@ class Actor(object):
                 variable_record.register_var('send_data_per_agent')
                 variable_record.register_var('update_model_time')
 
-        bot_target_apm = self._cfg.get('bot_target_apm', 120)
+        bot_target_apm = self._cfg.get('bot_target_apm', 900)
         action_cooldown = 60.0 / bot_target_apm
         last_bot_action_time = {}
 
