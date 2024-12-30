@@ -3,9 +3,9 @@
 # actor.py
 #
 # This module defines the Actor class that controls environment interaction
-# and data collection routines for DI-Star.
-# It has been refactored to keep bot APM throttling isolated without
-# sleeping or blocking the environment loop.
+# and data collection for DI-Star.
+# It includes a configurable bot APM throttle while trying to avoid environment
+# stalling or observation delays.
 # =============================================================================
 
 import os
@@ -30,21 +30,21 @@ from distar.ctools.worker.league.player import FRAC_ID
 
 
 # =============================================================================
-# Default configuration is loaded and merged with the user-provided config.
+# Default configuration is merged with user config.
 # =============================================================================
 default_config = read_config(os.path.join(os.path.dirname(__file__), 'actor_default_config.yaml'))
 
 
 class Actor(object):
     """
-    The Actor class manages environment interactions and data collection routines.
-    It allows for AI agent throttling (APM limiting) without blocking the overall game loop.
+    The Actor class orchestrates environment initialization, agent stepping, and
+    optional data collection for training or evaluation jobs.
     """
 
     def __init__(self, cfg):
         """
-        Merges the user config with defaults and sets up the logger and job communication
-        if training mode is detected. Agents are then initialized.
+        Initializes the Actor by merging user config with defaults. Sets up
+        logging, job communication if in training mode, and agent creation.
         """
         cfg = deep_merge_dicts(default_config, cfg)
         self._whole_cfg = cfg
@@ -73,9 +73,9 @@ class Actor(object):
 
     def _setup_agents(self):
         """
-        If in training mode, obtains job details from the communication module.
-        Otherwise, loads model states for each non-bot player ID. Teacher models
-        are also set up if the job type is train_test.
+        Sets up agent instances. If in training mode, requests job info from
+        the communication module. Otherwise, loads agent models and teacher
+        models if needed.
         """
         self.agents = []
         if self._job_type == 'train':
@@ -102,13 +102,16 @@ class Actor(object):
                             agent.model = agent.model.eval().share_memory()
 
                         if not self._cfg.fake_model:
-                            loaded = torch.load(self._cfg.model_paths[player_id], map_location='cpu')
-                            if 'map_name' in loaded:
-                                map_names.append(loaded['map_name'])
-                                agent._fake_reward_prob = loaded['fake_reward_prob']
-                                agent._z_path = loaded['z_path']
-                                agent.z_idx = loaded['z_idx']
-                            state_dict = {k: v for k, v in loaded['model'].items() if 'value_networks' not in k}
+                            loaded_state = torch.load(self._cfg.model_paths[player_id], map_location='cpu')
+                            if 'map_name' in loaded_state:
+                                map_names.append(loaded_state['map_name'])
+                                agent._fake_reward_prob = loaded_state['fake_reward_prob']
+                                agent._z_path = loaded_state['z_path']
+                                agent.z_idx = loaded_state['z_idx']
+                            state_dict = {
+                                k: v for k, v in loaded_state['model'].items()
+                                if 'value_networks' not in k
+                            }
                             agent.model.load_state_dict(state_dict, strict=False)
                         self.models[player_id] = agent.model
                     else:
@@ -133,19 +136,24 @@ class Actor(object):
                                 agent.teacher_model = agent.teacher_model.cuda()
                             else:
                                 agent.teacher_model = agent.teacher_model.eval()
-
                             if not self._cfg.fake_model:
-                                loaded = torch.load(self._cfg.teacher_model_paths[teacher_player_id], map_location='cpu')
-                                sdict = {k: v for k, v in loaded['model'].items() if 'value_networks' not in k}
-                                agent.teacher_model.load_state_dict(sdict)
+                                t_loaded = torch.load(
+                                    self._cfg.teacher_model_paths[teacher_player_id],
+                                    map_location='cpu'
+                                )
+                                t_state = {
+                                    k: v for k, v in t_loaded['model'].items()
+                                    if 'value_networks' not in k
+                                }
+                                agent.teacher_model.load_state_dict(t_state)
                             teacher_models[teacher_player_id] = agent.teacher_model
                         else:
                             agent.teacher_model = teacher_models[teacher_player_id]
 
     def _inference_loop(self, env_id=0, job=None, result_queue=None, pipe_c=None):
         """
-        Main loop that initializes the SC2 environment, runs episodes, and collects training data
-        until the specified number of episodes is reached or a termination signal is received.
+        Main loop that initializes the environment, runs episodes, collects data
+        until episodes are done or a termination signal is received.
         """
         if job is None:
             job = {}
@@ -185,8 +193,8 @@ class Actor(object):
                 try:
                     game_start = time.time()
                     game_iters = 0
-
                     observations, game_info, map_name = self._env.reset()
+
                     for idx in observations.keys():
                         self.agents[idx].env_id = env_id
                         race = self._whole_cfg.env.races[idx]
@@ -200,7 +208,7 @@ class Actor(object):
                             cmd = pipe_c.recv()
                             if cmd == 'reset':
                                 break
-                            elif cmd == 'close':
+                            if cmd == 'close':
                                 self._env.close()
                                 return
 
@@ -217,14 +225,23 @@ class Actor(object):
                                 agent._model_last_iter = self._comm.model_last_iter_dict[pid].item()
 
                             if 'bot' in pid or 'model' in pid:
-                                curr_time = time.time()
-                                if (curr_time - last_bot_action_time[pid]) < action_cooldown:
-                                    actions[player_index] = []
+                                now_time = time.time()
+                                if (now_time - last_bot_action_time[pid]) < action_cooldown:
+                                    # Minimal no-op dictionary
+                                    actions[player_index] = [{
+                                        'func_id': 0,
+                                        'queued': 0,
+                                        'skip_steps': 0,
+                                        'unit_tags': [],
+                                        'target_unit_tag': 0,
+                                        'location': (0, 0)
+                                    }]
                                 else:
                                     actions[player_index] = agent.step(obs)
-                                    last_bot_action_time[pid] = curr_time
+                                    last_bot_action_time[pid] = now_time
                             else:
                                 actions[player_index] = agent.step(obs)
+
                             agent_count += 1
 
                         agent_time = time.time() - agent_start
@@ -240,8 +257,9 @@ class Actor(object):
                             send_data_count = 0
                             for p_idx, obs_data in next_players_obs.items():
                                 store_data = (
-                                    (self._job_type == 'train_test')
-                                    or (self.agents[p_idx].player_id in self._comm.job['send_data_players'])
+                                    self._job_type == 'train_test'
+                                    or self.agents[p_idx].player_id
+                                       in self._comm.job['send_data_players']
                                 )
                                 if store_data:
                                     t0 = time.time()
@@ -261,22 +279,23 @@ class Actor(object):
 
                         iter_count += 1
                         game_iters += 1
+
                         if env_id == 0:
                             if 'train' in self._job_type:
                                 variable_record.update_var({
                                     'agent_time': agent_time,
                                     'agent_time_per_agent': agent_time / (agent_count + 1e-6),
-                                    'env_time': env_time,
+                                    'env_time': env_time
                                 })
                                 if post_process_count > 0:
                                     variable_record.update_var({
                                         'post_process_time': post_process_time,
-                                        'post_process_per_agent': post_process_time / post_process_count,
+                                        'post_process_per_agent': post_process_time / post_process_count
                                     })
                                 if send_data_count > 0:
                                     variable_record.update_var({
                                         'send_data_time': send_data_time,
-                                        'send_data_per_agent': send_data_time / send_data_count,
+                                        'send_data_per_agent': send_data_time / send_data_count
                                     })
                             else:
                                 variable_record.update_var({
@@ -288,42 +307,43 @@ class Actor(object):
 
                         if not done:
                             observations = next_obs
-                        else:
-                            if (
-                                'test' in self._whole_cfg
-                                and self._whole_cfg.test.get('tb_stat', False)
-                            ):
-                                if not os.path.exists(self._env._result_dir):
-                                    os.makedirs(self._env._result_dir)
-                                data = self.agents[0].get_stat_data()
-                                path_name = '{}_{}_{}_.json'.format(env_id, episode_count, player_index)
-                                f_path = os.path.join(self._env._result_dir, path_name)
-                                with open(f_path, 'w') as f:
-                                    json.dump(data, f)
+                            continue
 
-                            if self._job_type == 'train':
-                                random_player = random.sample(observations.keys(), 1)[0]
-                                game_steps = observations[random_player]['raw_obs'].observation.game_loop
-                                result_info = defaultdict(dict)
-                                for idx2 in range(len(self.agents)):
-                                    pid2 = self.agents[idx2].player_id
-                                    side_id2 = self.agents[idx2].side_id
-                                    race2 = self.agents[idx2].race
-                                    agent_iters = self.agents[idx2].iter_count
-                                    result_info[side_id2]['race'] = race2
-                                    result_info[side_id2]['player_id'] = pid2
-                                    result_info[side_id2]['opponent_id'] = self.agents[idx2].opponent_id
-                                    result_info[side_id2]['winloss'] = reward[idx2]
-                                    result_info[side_id2]['agent_iters'] = agent_iters
-                                    result_info[side_id2].update(self.agents[idx2].get_unit_num_info())
-                                    result_info[side_id2].update(self.agents[idx2].get_stat_data())
+                        if (
+                            'test' in self._whole_cfg
+                            and self._whole_cfg.test.get('tb_stat', False)
+                        ):
+                            if not os.path.exists(self._env._result_dir):
+                                os.makedirs(self._env._result_dir)
+                            data = self.agents[0].get_stat_data()
+                            path_file = '{}_{}_{}_.json'.format(env_id, episode_count, player_index)
+                            full_path = os.path.join(self._env._result_dir, path_file)
+                            with open(full_path, 'w') as f:
+                                json.dump(data, f)
 
-                                game_duration = time.time() - game_start
-                                result_info['game_steps'] = game_steps
-                                result_info['game_iters'] = game_iters
-                                result_info['game_duration'] = game_duration
-                                self._comm.send_result(result_info)
-                            break
+                        if self._job_type == 'train':
+                            rand_pid = random.sample(observations.keys(), 1)[0]
+                            game_steps = observations[rand_pid]['raw_obs'].observation.game_loop
+                            result_info = defaultdict(dict)
+                            for idx2 in range(len(self.agents)):
+                                pid2 = self.agents[idx2].player_id
+                                side_id2 = self.agents[idx2].side_id
+                                race2 = self.agents[idx2].race
+                                agent_iters = self.agents[idx2].iter_count
+                                result_info[side_id2]['race'] = race2
+                                result_info[side_id2]['player_id'] = pid2
+                                result_info[side_id2]['opponent_id'] = self.agents[idx2].opponent_id
+                                result_info[side_id2]['winloss'] = reward[idx2]
+                                result_info[side_id2]['agent_iters'] = agent_iters
+                                result_info[side_id2].update(self.agents[idx2].get_unit_num_info())
+                                result_info[side_id2].update(self.agents[idx2].get_stat_data())
+
+                            game_duration = time.time() - game_start
+                            result_info['game_steps'] = game_steps
+                            result_info['game_iters'] = game_iters
+                            result_info['game_duration'] = game_duration
+                            self._comm.send_result(result_info)
+                        break
 
                     episode_count += 1
 
@@ -334,6 +354,7 @@ class Actor(object):
                     self._env.close()
 
             self._env.close()
+
             if result_queue is not None:
                 print(os.getpid(), 'done')
                 result_queue.put('done')
@@ -342,8 +363,8 @@ class Actor(object):
 
     def _gpu_inference_loop(self):
         """
-        Batch inference loop for GPU usage. Periodically checks for done signals
-        and updates model parameters if in training mode.
+        Handles batch inference on GPU, checking for job completion signals
+        and updating models if in training mode.
         """
         _, _ = dist_init(method='single_node')
         torch.set_num_threads(1)
@@ -355,6 +376,7 @@ class Actor(object):
 
         start_time = time.time()
         done_count = 0
+
         with torch.no_grad():
             while True:
                 if self._job_type == 'train':
@@ -384,14 +406,12 @@ class Actor(object):
 
     def _start_multi_inference_loop(self):
         """
-        Spawns child processes for environment stepping in parallel.
+        Spawns processes for multi-environment stepping, storing them so they
+        can be closed or reset as needed.
         """
         self._close_processes()
         self._processes = []
-        if hasattr(self, '_comm'):
-            job = self._comm.job
-        else:
-            job = {}
+        job = self._comm.job if hasattr(self, '_comm') else {}
 
         self.pipes = []
         context_str = 'spawn' if platform.system().lower() == 'windows' else 'fork'
@@ -411,17 +431,15 @@ class Actor(object):
 
     def reset_env(self):
         """
-        Sends a 'reset' signal to all child processes so they can restart
-        their environments.
+        Sends 'reset' to all child processes to make them restart their environments.
         """
         for p in self.pipes:
             p.send('reset')
 
     def run(self):
         """
-        Decides if a single or multi-environment approach is used, handles
-        GPU-accelerated inference when configured, and manages the training
-        or evaluation loops.
+        Entry point for the actor. Depending on job type, it either runs a single
+        environment loop or spawns multiple processes for training or evaluation.
         """
         try:
             if 'test' in self._job_type:
@@ -454,18 +472,18 @@ class Actor(object):
 
     def reset(self):
         """
-        Closes the running processes, requests a new job from the comm module
-        if in training mode, and restarts the multi-environment inference loop.
+        Closes processes, requests a new job if training, then restarts the
+        multi-environment loop.
         """
-        self._logger.info('Actor reset multi-process.')
+        self._logger.info('actor reset multi-process.')
         self._close_processes()
-        self._comm.ask_for_job(self)
+        if hasattr(self, '_comm'):
+            self._comm.ask_for_job(self)
         self._start_multi_inference_loop()
 
     def close(self):
         """
-        Cleanly closes child processes, finalizes logging and comms,
-        then terminates the actor.
+        Logs actor closure, closes processes, and exits the application.
         """
         self._logger.info('Actor close.')
         time.sleep(2)
@@ -477,8 +495,7 @@ class Actor(object):
 
     def _close_processes(self):
         """
-        Iterates over spawned processes and closes them with inter-process signals,
-        then waits for them to join.
+        Signals all child processes to close, then joins them to ensure a clean exit.
         """
         if hasattr(self, '_processes'):
             for p in self.pipes:
@@ -488,8 +505,8 @@ class Actor(object):
 
     def iter_after_hook(self, iter_count, variable_record):
         """
-        Provides an optional hook for logging performance or stats after certain
-        iteration frequencies.
+        Optional method for logging performance metrics or other stats after
+        a certain number of steps, controlled by print_freq.
         """
         if iter_count % self._cfg.print_freq == 0:
             if hasattr(self, '_comm'):
