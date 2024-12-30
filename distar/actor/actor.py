@@ -25,9 +25,7 @@ from distar.ctools.utils.dist_helper import dist_init
 from distar.envs.env import SC2Env
 from distar.ctools.worker.league.player import FRAC_ID
 
-# -----------------------------------------------------------------------------
 # Load the default configuration file and merge it with custom user cfg.
-# -----------------------------------------------------------------------------
 default_config = read_config(os.path.join(os.path.dirname(__file__), 'actor_default_config.yaml'))
 
 
@@ -36,7 +34,7 @@ class Actor(object):
 
     def __init__(self, cfg):
         """
-        Constructor for the Actor class.
+        Initializes the Actor class.
 
         :param cfg: Dictionary containing configuration data, merged with default config.
         """
@@ -59,7 +57,7 @@ class Actor(object):
             name=self._actor_uid
         )
 
-        # If training mode, initialize communication module for receiving jobs.
+        # Initialize communication module for receiving jobs if in training mode
         if self._job_type == 'train':
             self._comm = ActorComm(self._whole_cfg, self._actor_uid, self._logger)
             self.max_job_duration = (
@@ -71,21 +69,21 @@ class Actor(object):
     def _setup_agents(self):
         """
         Sets up agent instances for training or other job types.
-        If _job_type == 'train', requests job info from the communication module.
+        Requests job info from the communication module if in training mode.
         Otherwise, loads relevant agent models if they exist.
         """
         self.agents = []
         if self._job_type == 'train':
-            # Ask for job details from the communication module (comm).
+            # Ask for job details from the communication module.
             self._comm.ask_for_job(self)
         else:
             self.models = {}
             map_names = []
             for idx, player_id in enumerate(self._cfg.player_ids):
-                if 'bot' in player_id:  # Skips bot players that might be handled separately.
+                if 'bot' in player_id:  # Skip bot players.
                     continue
 
-                # Import the agent class dynamically, then instantiate it
+                # Import and instantiate the agent class dynamically
                 Agent = import_module(self._cfg.agents.get(player_id, 'default'), 'Agent')
                 agent = Agent(self._whole_cfg)
                 agent.player_id = player_id
@@ -93,7 +91,7 @@ class Actor(object):
                 self.agents.append(agent)
 
                 if agent.HAS_MODEL:
-                    # If the model is not yet cached, load it
+                    # Load the model if it is not yet cached
                     if player_id not in self.models.keys():
                         if self._cfg.use_cuda:
                             assert 'test' in self._job_type, 'Only test mode supports GPU'
@@ -115,7 +113,7 @@ class Actor(object):
                             agent.model.load_state_dict(model_state_dict, strict=False)
                         self.models[player_id] = agent.model
                     else:
-                        # If model is already loaded, share it among multiple agents
+                        # Share the loaded model among multiple agents
                         agent.model = self.models[player_id]
 
             # Set environment map name if referencing it in loaded states
@@ -125,7 +123,7 @@ class Actor(object):
                 if not (map_names[0] == 'random' and map_names[1] == 'random'):
                     self._whole_cfg.env.map_name = 'NewRepugnancy'
 
-            # If train_test job, also set up teacher models for the agents
+            # Set up teacher models for the agents if in train_test mode
             if self._job_type == 'train_test':
                 teacher_models = {}
                 for idx, teacher_player_id in enumerate(self._cfg.teacher_player_ids):
@@ -159,6 +157,11 @@ class Actor(object):
         """
         Main inference loop. Initializes the environment, steps through episodes,
         and collects training data until completion or termination signal.
+
+        :param env_id: ID of the environment.
+        :param job: Job configuration.
+        :param result_queue: Queue for result communication.
+        :param pipe_c: Pipe for inter-process communication.
         """
         if job is None:
             job = {}
@@ -191,7 +194,7 @@ class Actor(object):
                 variable_record.register_var('update_model_time')
 
         # Define desired APM for a bot (example: 120 APM -> 0.5 sec per action)
-        bot_target_apm = 0.1
+        bot_target_apm = 120
         action_cooldown = 60.0 / bot_target_apm
         last_bot_action_time = {}
 
@@ -249,6 +252,7 @@ class Actor(object):
                                     actions[player_index] = agent.step(obs)
                                     last_bot_action_time[player_id] = curr_time
                             else:
+                                # For human or any other agent, act each step
                                 actions[player_index] = agent.step(obs)
                             agent_count += 1
 
@@ -290,7 +294,7 @@ class Actor(object):
                                 else:
                                     self.agents[player_index].update_fake_reward(next_players_obs[player_index])
 
-                        # Logging and metrics
+                        # Logging and metrics update
                         iter_count += 1
                         game_iters += 1
                         if env_id == 0:
@@ -322,7 +326,7 @@ class Actor(object):
                         if not done:
                             observations = next_observations
                         else:
-                            # For test mode, optionally store stats
+                            # Optionally store stats in test mode
                             if 'test' in self._whole_cfg and self._whole_cfg.test.get('tb_stat', False):
                                 if not os.path.exists(self._env._result_dir):
                                     os.makedirs(self._env._result_dir)
@@ -332,7 +336,7 @@ class Actor(object):
                                 with open(path, 'w') as f:
                                     json.dump(data, f)
 
-                            # If in training mode, report results back to the coordinator
+                            # Report results back to the coordinator in training mode
                             if self._job_type == 'train':
                                 player_idx = random.sample(observations.keys(), 1)[0]
                                 game_steps = observations[player_idx]['raw_obs'].observation.game_loop
@@ -360,7 +364,7 @@ class Actor(object):
 
                     episode_count += 1
                 except Exception as e:
-                    # On exception, show stack trace and move on safely.
+                    # Handle exception, show stack trace, and proceed safely
                     print('[EPISODE LOOP ERROR]', e, flush=True)
                     print(''.join(traceback.format_tb(e.__traceback__)), flush=True)
                     episode_count += 1
@@ -453,7 +457,9 @@ class Actor(object):
         self.processes = processes
 
     def reset_env(self):
-        """Sends 'reset' signal to all child processes to restart their environments."""
+        """
+        Sends 'reset' signal to all child processes to restart their environments.
+        """
         for p in self.pipes:
             p.send('reset')
 
