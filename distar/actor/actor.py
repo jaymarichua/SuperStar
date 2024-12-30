@@ -260,8 +260,8 @@ class Actor(object):
                                         self._bot_action_timestamps[pid].popleft()
 
                                     # Optionally log APM every so often
-                                    # apm_now = len(self._bot_action_timestamps[pid])
-                                    # self._logger.info(f"[APM] Player {pid}: {apm_now} (last 60s)")
+                                    apm_now = len(self._bot_action_timestamps[pid])
+                                    self._logger.info(f"[APM] Player {pid}: {apm_now} (last 60s)")
                             else:
                                 actions[player_index] = agent.step(obs)
 
