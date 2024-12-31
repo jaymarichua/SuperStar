@@ -129,7 +129,8 @@ class Agent:
         self._job_type = self._cfg.job_type
         self._env_id = env_id
 
-        self._only_cum_action_kl = self._whole_cfg.get('learner', {}).get('only_cum_action_kl', False)
+        learner_cfg = self._whole_cfg.get('learner', {})
+        self._only_cum_action_kl = learner_cfg.get('only_cum_action_kl', False)
         self._z_path = self._whole_cfg.agent.z_path
         self._bo_norm = self._whole_cfg.get('learner', {}).get('bo_norm', 20)
         self._cum_norm = self._whole_cfg.get('learner', {}).get('cum_norm', 30)
