@@ -1,3 +1,11 @@
+#!/usr/bin/env python3
+# actor.py
+#
+# This module defines the Actor class that controls environment interaction
+# and data collection routines for DI-Star.
+# Below, it includes a short APM measurement mechanism for each bot or "model"
+# agent, using timestamps of real actions to compute a rolling 60-second APM.
+
 import os
 import time
 import traceback
@@ -509,24 +517,24 @@ class Actor:
             else:
                 return
 
-            def parse_logs(self, log_file):
-                """
-                Parses the log file to extract spam and toxic events.
-                """
-                with open(log_file, 'r') as file:
-                    logs = file.readlines()
-                spam_events = [line for line in logs if 'RollingRewardHackingMonitor' in line]
-                toxic_events = [line for line in logs if 'ToxicStrategyMonitor' in line]
-                return spam_events, toxic_events
+    def parse_logs(self, log_file):
+        """
+        Parses the log file to extract spam and toxic events.
+        """
+        with open(log_file, 'r') as file:
+            logs = file.readlines()
+        spam_events = [line for line in logs if 'RollingRewardHackingMonitor' in line]
+        toxic_events = [line for line in logs if 'ToxicStrategyMonitor' in line]
+        return spam_events, toxic_events
 
-            def summarize_results(self, result_file):
-                """
-                Summarizes and prints the results from the result file.
-                """
-                with open(result_file, 'r') as file:
-                    results = json.load(file)
-                print("Partial Reward Ratios:", results.get('partial_reward_ratio', 'N/A'))
-                print("Toxic Strategy Summary:", results.get('toxic_strategy_summary', 'N/A'))
+    def summarize_results(self, result_file):
+        """
+        Summarizes and prints the results from the result file.
+        """
+        with open(result_file, 'r') as file:
+            results = json.load(file)
+        print("Partial Reward Ratios:", results.get('partial_reward_ratio', 'N/A'))
+        print("Toxic Strategy Summary:", results.get('toxic_strategy_summary', 'N/A'))
 
     def _gpu_inference_loop(self):
         _, _ = dist_init(method='single_node')
