@@ -527,3 +527,125 @@ class Actor:
                     results = json.load(file)
                 print("Partial Reward Ratios:", results.get('partial_reward_ratio', 'N/A'))
                 print("Toxic Strategy Summary:", results.get('toxic_strategy_summary', 'N/A'))
+
+    def _gpu_inference_loop(self):
+        _, _ = dist_init(method='single_node')
+        torch.set_num_threads(1)
+        for agent in self.agents:
+            agent.model = agent.model.cuda()
+            if 'train' in self._job_type:
+                agent.teacher_model = agent.teacher_model.cuda()
+        start_time = time.time()
+        done_count = 0
+        with torch.no_grad():
+            while True:
+                if self._job_type == 'train':
+                    self._comm.async_update_model(self)
+                    if time.time() - start_time > self.max_job_duration:
+                        self.close()
+                    if self._result_queue.qsize():
+                        self._result_queue.get()
+                        done_count += 1
+                        if done_count == len(self._processes):
+                            self.close()
+                            break
+                elif self._job_type == 'eval':
+                    if self._result_queue.qsize():
+                        self._result_queue.get()
+                        done_count += 1
+                        if done_count == len(self._processes):
+                            self._close_processes()
+                            break
+                for agent in self.agents:
+                    agent.gpu_batch_inference()
+                    if 'train' in self._job_type:
+                        agent.gpu_batch_inference(teacher=True)
+
+    def _start_multi_inference_loop(self):
+        self._close_processes()
+        self._processes = []
+        if hasattr(self, '_comm'):
+            job = self._comm.job
+        else:
+            job = {}
+        self.pipes = []
+        processes = []
+        context_str = 'spawn' if platform.system().lower() == 'windows' else 'fork'
+        mp_context = mp.get_context(context_str)
+        self._result_queue = mp_context.Queue()
+        for env_id in range(self._cfg.env_num):
+            pipe_p, pipe_c = mp_context.Pipe()
+            p = mp_context.Process(target=self._inference_loop, args=(env_id, job, self._result_queue, pipe_c), daemon=True)
+            self.pipes.append(pipe_p)
+            processes.append(p)
+            p.start()
+        self.processes = processes
+
+    def reset_env(self):
+        for p in self.pipes:
+            p.send('reset')
+
+    def run(self):
+        try:
+            if 'test' in self._job_type:
+                self._inference_loop()
+            else:
+                if self._job_type == 'train':
+                    self._start_multi_inference_loop()
+                    if self._gpu_batch_inference:
+                        self._gpu_inference_loop()
+                    else:
+                        start_time = time.time()
+                        while True:
+                            if time.time() - start_time > self.max_job_duration:
+                                self.reset()
+                            self._comm.update_model(self)
+                            time.sleep(1)
+                if self._job_type == 'eval':
+                    self._start_multi_inference_loop()
+                    if self._gpu_batch_inference:
+                        self._gpu_inference_loop()
+                    else:
+                        for _ in range(len(self._processes)):
+                            self._result_queue.get()
+                        self._close_processes()
+        except Exception as e:
+            print('[MAIN LOOP ERROR]', e, flush=True)
+            print(''.join(traceback.format_tb(e.__traceback__)), flush=True)
+
+    def reset(self):
+        self._logger.info('actor reset multi-process')
+        self._close_processes()
+        self._comm.ask_for_job(self)
+        self._start_multi_inference_loop()
+
+    def close(self):
+        self._logger.info('actor close')
+        time.sleep(2)
+        self._comm.close()
+        self._close_processes()
+        time.sleep(1)
+        os._exit(0)
+
+    def _close_processes(self):
+        if hasattr(self, '_processes'):
+            for p in self.pipes:
+                p.send('close')
+            for p in self._processes:
+                p.join()
+
+    def iter_after_hook(self, iter_count, variable_record):
+        if iter_count % self._cfg.print_freq == 0:
+            if hasattr(self,'_comm'):
+                variable_record.update_var({'update_model_time':self._comm._avg_update_model_time.item() })
+            self._logger.info(
+                'ACTOR({}):\n{}TimeStep{}{} {}'.format(
+                    self._actor_uid, '=' * 35, iter_count, '=' * 35,
+                    variable_record.get_vars_text()
+                )
+            )
+
+
+if __name__ == '__main__':
+    actor = Actor(cfg={})
+    actor.run()
