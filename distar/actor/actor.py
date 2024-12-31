@@ -1,3 +1,24 @@
+import os
+import time
+import traceback
+import uuid
+import random
+import json
+import platform
+import collections
+from collections import defaultdict, deque
+
+import torch
+import torch.multiprocessing as mp
+
+from distar.agent.import_helper import import_module
+from distar.ctools.utils import read_config, deep_merge_dicts
+from distar.ctools.utils.log_helper import TextLogger, VariableRecord
+from distar.ctools.worker.actor.actor_comm import ActorComm
+from distar.ctools.utils.dist_helper import dist_init
+from distar.envs.env import SC2Env
+from distar.ctools.worker.league.player import FRAC_ID
+
 # The default actor config is loaded here, then partially merged with user-provided configs
 default_config = read_config(os.path.join(os.path.dirname(__file__), 'actor_default_config.yaml'))
 
