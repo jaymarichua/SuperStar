@@ -85,3 +85,11 @@ if __name__ == '__main__':
 
     actor = Actor(user_config)
     actor.run()
+
+    # Parse logs to extract spam and toxic events
+    spam_events, toxic_events = actor.parse_logs('path_to_log_file.log')
+    print("Spam Events:", spam_events)
+    print("Toxic Events:", toxic_events)
+
+    # Summarize results from the result file
+    actor.summarize_results('path_to_result_file.json')

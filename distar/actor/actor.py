@@ -488,4 +488,21 @@ class Actor:
             else:
                 return
 
-    # Other methods remain unchanged (e.g., _gpu_inference_loop, close, iter_after_hook).
+            def parse_logs(self, log_file):
+                """
+                Parses the log file to extract spam and toxic events.
+                """
+                with open(log_file, 'r') as file:
+                    logs = file.readlines()
+                spam_events = [line for line in logs if 'RollingRewardHackingMonitor' in line]
+                toxic_events = [line for line in logs if 'ToxicStrategyMonitor' in line]
+                return spam_events, toxic_events
+
+            def summarize_results(self, result_file):
+                """
+                Summarizes and prints the results from the result file.
+                """
+                with open(result_file, 'r') as file:
+                    results = json.load(file)
+                print("Partial Reward Ratios:", results.get('partial_reward_ratio', 'N/A'))
+                print("Toxic Strategy Summary:", results.get('toxic_strategy_summary', 'N/A'))
