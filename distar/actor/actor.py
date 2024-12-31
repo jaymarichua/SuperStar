@@ -394,7 +394,7 @@ class Actor:
                         # Update toxic strategy monitor
                         for p_idx, obs_data in next_obs.items():
                             # Assuming SC2 game time or another measure is used for `current_game_time`
-                            current_game_time = observations[p_idx]['game_loop'] / 22.4  # Example conversion
+                            current_game_time = obs_data['raw_obs'].observation.game_loop / 22.4  # conversion
                             self._toxic_strategy_monitor.update_toxic_strategies(obs_data['raw_obs'], current_game_time, self._logger)
 
                         if 'train' in self._job_type:
